@@ -1,2 +1,4 @@
 pyshark
-python-osc
+#python-osc
+pyosc
+ipaddress

@@ -1,22 +1,38 @@
 import sys
+import time
 import argparse
 import ipaddress
 
 import pyshark
-from pythonosc import osc_message_builder
-from pythonosc import udp_client
+from OSC import OSCClient, OSCMessage, OSCBundle
 
 class OSCClientWriter(object):
-    def __init__(self, host, port):
-        self.client = udp_client.SimpleUDPClient(host, port)
+    def __init__(self, host, port, time_warp=1.0):
+        self.client = OSCClient()
+        self.client.connect((host, port))
+        self.start_time = time.time()
+        self.first_timestamp = None
+        self.time_warp = time_warp
+        self.my_ip = '10.0.11.237'
 
     def got_packet(self, packet):
-        #my_ip = '192.168.1.3'
-        my_ip = '10.0.11.237'
         try:
+            timestamp = float(packet.sniff_timestamp)
+            if self.first_timestamp is None:
+                self.first_timestamp = timestamp
+            offset = (timestamp - self.first_timestamp)*self.time_warp
+            print("Offsetting by %s" % offset)
+
+            direction = 2 # 2: nor incoming, nor outgoing
+                          # 1: is incoming
+                          # 0: is outgoing
             is_incoming = False
-            if packet.ip.dst == my_ip:
+            if packet.ip.dst == self.my_ip:
                 is_incoming = True
+                direction = 1
+            elif packet.ip.src == self.my_ip:
+                direction = 0
+
             relevant_data = (
                     'in' if is_incoming else 'out',
                     packet.length,
@@ -33,36 +49,43 @@ class OSCClientWriter(object):
             print("\n\n")
             return
         print(pkt_string)
-        self.client.send_message(
-                '/transport/{}'.format(packet.transport_layer),
-                packet.highest_layer
-        )
+        sport = 0
+        dport = 0
+        try:
+            sport = packet.udp.srcport
+            dport = packet.udp.dstport
+        except AttributeError:
+            pass
+        try:
+            sport = packet.tcp.srcport
+            dport = packet.tcp.dstport
+        except AttributeError:
+            pass
 
-        if is_incoming:
-            first_octet = ipaddress.IPv4Address(packet.ip.src).packed[0]
-            dst = 'in'
-        else:
-            first_octet = ipaddress.IPv4Address(packet.ip.dst).packed[0]
-            dst = 'out'
-        self.client.send_message(
-                '/dst/{}'.format(dst),
-                first_octet
-        )
-        self.client.send_message(
-                '/gotpacket',
-                list(relevant_data)
-        )
+        pkt_msg= OSCMessage('/gotpacket')
+        pkt_msg.append(direction, 'i')
+        pkt_msg.append(packet.length, 'i')
+        pkt_msg.append(sport, 'i')
+        pkt_msg.append(dport, 'i')
 
-
+        pkt_msg.append(packet.highest_layer, 's')
+        pkt_msg.append(packet.transport_layer, 's')
+        pkt_msg.append(packet.ip.src, 's')
+        pkt_msg.append(packet.ip.dst, 's')
+        pkt_msg.append(packet.ip.host, 's')
+        pkt_bundle = OSCBundle('/gotpacket',
+                               time=self.start_time + offset)
+        pkt_bundle.append(pkt_msg)
+        self.client.send(pkt_bundle)
 
 def start_capture(interface, osc_client):
-    capture = pyshark.LiveCapture(interface=interface)
+    capture = pyshark.LiveRingCapture(interface=interface,
+                                      ring_file_size=2**14) # 16MB
     for packet in capture.sniff_continuously():
         osc_client.got_packet(packet)
 
 def read_pcap(pcap_file, osc_client):
     capture = pyshark.FileCapture(pcap_file)
-    # XXX we probably want to delay packets here and possibly reorder them
     for packet in capture:
         osc_client.got_packet(packet)
 
@@ -75,6 +98,10 @@ def main():
             help='The interface to listen on for incoming messages')
     parser.add_argument('--pcap',
             help='The pcap file to read packets from')
+    parser.add_argument('--time-warp', default='1.0',
+            help='Factor by which to warp time (ex. 2.0 means 2 times slower)',
+            type=float)
+
     args = parser.parse_args()
     try:
         osc_server_host, osc_server_port = args.osc_server.split(':')
@@ -84,7 +111,8 @@ def main():
         parser.help()
         sys.exit(1)
 
-    osc_client = OSCClientWriter(osc_server_host, osc_server_port)
+    osc_client = OSCClientWriter(osc_server_host, osc_server_port,
+                                 time_warp=args.time_warp)
 
     if args.pcap:
         print("Reading from PCAP file: %s" % args.pcap)
