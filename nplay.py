@@ -7,13 +7,13 @@ import pyshark
 from OSC import OSCClient, OSCMessage, OSCBundle
 
 class OSCClientWriter(object):
-    def __init__(self, host, port, time_warp=1.0):
+    def __init__(self, host, port, my_ip, time_warp=1.0):
         self.client = OSCClient()
         self.client.connect((host, port))
         self.start_time = time.time()
         self.first_timestamp = None
         self.time_warp = time_warp
-        self.my_ip = '10.0.11.237'
+        self.my_ip = my_ip
 
     def got_packet(self, packet):
         try:
@@ -98,6 +98,8 @@ def main():
             help='The interface to listen on for incoming messages')
     parser.add_argument('--pcap',
             help='The pcap file to read packets from')
+    parser.add_argument('--my-ip',
+            help='The pcap file to read packets from')
     parser.add_argument('--time-warp', default='1.0',
             help='Factor by which to warp time (ex. 2.0 means 2 times slower)',
             type=float)
@@ -111,14 +113,20 @@ def main():
         parser.help()
         sys.exit(1)
 
-    osc_client = OSCClientWriter(osc_server_host, osc_server_port,
+    my_ip='10.0.11.237'
+    if args.my_ip:
+        my_ip = args.my_ip
+
+    osc_client = OSCClientWriter(osc_server_host,
+                                 osc_server_port,
+                                 my_ip=my_ip,
                                  time_warp=args.time_warp)
 
     if args.pcap:
-        print("Reading from PCAP file: %s" % args.pcap)
+        print("> Reading from PCAP file: %s" % args.pcap)
         read_pcap(args.pcap, osc_client)
     else:
-        print("Sniffing on interface: %s" % args.interface)
+        print("> Sniffing on interface: %s" % args.interface)
         start_capture(args.interface, osc_client)
 
 if __name__ == "__main__":
