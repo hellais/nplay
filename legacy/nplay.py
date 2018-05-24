@@ -37,20 +37,22 @@ class OSCClientWriter(object):
 
         self.time_warp = time_warp
         self.my_ip = my_ip
+        self.idx = 0
 
     def got_packet(self, packet):
         if not hasattr(packet, 'ip'):
             print("Skipping non-ip packet")
             return
 
+        self.idx += 1
         try:
             ip_src = ipaddress.ip_address(packet.ip.src)
             ip_dst = ipaddress.ip_address(packet.ip.dst)
 
             timestamp = float(packet.sniff_timestamp)
             if self.first_timestamp is None:
-                self.first_timestamp = timestamp
-            offset = (timestamp - self.first_timestamp)*self.time_warp
+                self.first_timestamp = float(timestamp)
+            offset = (float(timestamp) - self.first_timestamp)*float(self.time_warp)
             print("Offsetting by %s" % offset)
 
             direction = compute_direction(ip_src, ip_dst, self.my_ip)
@@ -99,9 +101,15 @@ class OSCClientWriter(object):
         #pkt_msg.append(packet.ip.src, 's')
         #pkt_msg.append(packet.ip.dst, 's')
         msg.add_arg(packet.ip.host, 's')
-        bundle = osc_bundle_builder.OscBundleBuilder(self.start_time + offset)
+        if self.idx > 10:
+            return
+        timestamp = self.start_time + offset + self.idx * 20
+        print("ts: %f" % timestamp)
+        bundle = osc_bundle_builder.OscBundleBuilder(timestamp)
         bundle.add_content(msg.build())
-        self.client.send(bundle.build())
+        built_bundle = bundle.build()
+        print("bundle: %s" % built_bundle.dgram)
+        self.client.send(built_bundle)
 
 def start_capture(interface, osc_client):
     capture = pyshark.LiveRingCapture(interface=interface,
