@@ -4,37 +4,59 @@ import argparse
 import ipaddress
 
 import pyshark
-from OSC import OSCClient, OSCMessage, OSCBundle
+
+from pythonosc import osc_message_builder, osc_bundle_builder
+from pythonosc import udp_client
+
+# 2: nor incoming, nor outgoing
+# 1: is incoming
+# 0: is outgoing
+DIR_INCOMING = 1
+DIR_OUTGOING = 0
+DIR_NONE = 2
+
+def compute_direction(src, dst, my_ip):
+    if my_ip is not None:
+        if dst == my_ip:
+            return DIR_INCOMING
+        elif src == my_ip:
+            return DIR_OUTGOING
+    else:
+        if src.is_private:
+            return DIR_OUTGOING
+        elif dst.is_private:
+            return DIR_INCOMING
+    return DIR_NONE
 
 class OSCClientWriter(object):
     def __init__(self, host, port, my_ip, time_warp=1.0):
-        self.client = OSCClient()
-        self.client.connect((host, port))
+        self.client = udp_client.SimpleUDPClient(host, port)
+
         self.start_time = time.time()
         self.first_timestamp = None
+
         self.time_warp = time_warp
         self.my_ip = my_ip
 
     def got_packet(self, packet):
+        if not hasattr(packet, 'ip'):
+            print("Skipping non-ip packet")
+            return
+
         try:
+            ip_src = ipaddress.ip_address(packet.ip.src)
+            ip_dst = ipaddress.ip_address(packet.ip.dst)
+
             timestamp = float(packet.sniff_timestamp)
             if self.first_timestamp is None:
                 self.first_timestamp = timestamp
             offset = (timestamp - self.first_timestamp)*self.time_warp
             print("Offsetting by %s" % offset)
 
-            direction = 2 # 2: nor incoming, nor outgoing
-                          # 1: is incoming
-                          # 0: is outgoing
-            is_incoming = False
-            if packet.ip.dst == self.my_ip:
-                is_incoming = True
-                direction = 1
-            elif packet.ip.src == self.my_ip:
-                direction = 0
+            direction = compute_direction(ip_src, ip_dst, self.my_ip)
 
             relevant_data = (
-                    'in' if is_incoming else 'out',
+                    'in' if direction == DIR_INCOMING else 'out',
                     packet.length,
                     packet.transport_layer,
                     packet.ip.src,
@@ -43,40 +65,43 @@ class OSCClientWriter(object):
                     packet.highest_layer,
                     packet.sniff_timestamp)
             pkt_string = ",".join(relevant_data)
-        except Exception:
+        except Exception as exc:
             print("FAILED")
-            print(packet)
+            print(exc)
             print("\n\n")
             return
         print(pkt_string)
+
         sport = 0
         dport = 0
         try:
-            sport = packet.udp.srcport
-            dport = packet.udp.dstport
+            sport = int(packet.udp.srcport)
+            dport = int(packet.udp.dstport)
         except AttributeError:
             pass
         try:
-            sport = packet.tcp.srcport
-            dport = packet.tcp.dstport
+            sport = int(packet.tcp.srcport)
+            dport = int(packet.tcp.dstport)
         except AttributeError:
             pass
 
-        pkt_msg= OSCMessage('/gotpacket')
-        pkt_msg.append(direction, 'i')
-        pkt_msg.append(packet.length, 'i')
-        pkt_msg.append(sport, 'i')
-        pkt_msg.append(dport, 'i')
+        msg = osc_message_builder.OscMessageBuilder(address='/gotpacket')
+        msg.add_arg(direction, 'i')
+        msg.add_arg(int(packet.length), 'i')
+        msg.add_arg(sport, 'i')
+        msg.add_arg(dport, 'i')
 
-        pkt_msg.append(packet.highest_layer, 's')
-        pkt_msg.append(packet.transport_layer, 's')
-        pkt_msg.append(packet.ip.src, 's')
-        pkt_msg.append(packet.ip.dst, 's')
-        pkt_msg.append(packet.ip.host, 's')
-        pkt_bundle = OSCBundle('/gotpacket',
-                               time=self.start_time + offset)
-        pkt_bundle.append(pkt_msg)
-        self.client.send(pkt_bundle)
+        msg.add_arg(packet.highest_layer, 's')
+        msg.add_arg(packet.transport_layer, 's')
+
+        msg.add_arg(int(ip_dst) >> 24, 'i')
+        msg.add_arg(int(ip_src) >> 24, 'i')
+        #pkt_msg.append(packet.ip.src, 's')
+        #pkt_msg.append(packet.ip.dst, 's')
+        msg.add_arg(packet.ip.host, 's')
+        bundle = osc_bundle_builder.OscBundleBuilder(self.start_time + offset)
+        bundle.add_content(msg.build())
+        self.client.send(bundle.build())
 
 def start_capture(interface, osc_client):
     capture = pyshark.LiveRingCapture(interface=interface,
@@ -94,7 +119,7 @@ def main():
     parser.add_argument('--osc-server', default='127.0.0.1:3334',
             help='The address of the open sound control server to send '
             'messages to')
-    parser.add_argument('--interface', default='en1',
+    parser.add_argument('--interface', default='en0',
             help='The interface to listen on for incoming messages')
     parser.add_argument('--pcap',
             help='The pcap file to read packets from')
@@ -113,9 +138,9 @@ def main():
         parser.help()
         sys.exit(1)
 
-    my_ip='10.0.11.237'
+    my_ip = None
     if args.my_ip:
-        my_ip = args.my_ip
+        my_ip = ipaddress.ip_address(args.my_ip)
 
     osc_client = OSCClientWriter(osc_server_host,
                                  osc_server_port,
