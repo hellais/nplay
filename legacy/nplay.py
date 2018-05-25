@@ -101,8 +101,6 @@ class OSCClientWriter(object):
         #pkt_msg.append(packet.ip.src, 's')
         #pkt_msg.append(packet.ip.dst, 's')
         msg.add_arg(packet.ip.host, 's')
-        if self.idx > 10:
-            return
         timestamp = self.start_time + offset + self.idx * 20
         print("ts: %f" % timestamp)
         bundle = osc_bundle_builder.OscBundleBuilder(timestamp)

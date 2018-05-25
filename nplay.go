@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"time"
 
 	"github.com/google/gopacket"
@@ -21,45 +23,109 @@ const DIR_UNKNOWN = 0
 const DIR_INCOMING = 1
 const DIR_OUTGOING = 2
 
+func computeDirection(srcIP net.IP, dstIP net.IP) int32 {
+	ip := srcIP
+	_, private24BitBlock, _ := net.ParseCIDR("10.0.0.0/8")
+	_, private20BitBlock, _ := net.ParseCIDR("172.16.0.0/12")
+	_, private16BitBlock, _ := net.ParseCIDR("192.168.0.0/16")
+	isPrivate := private24BitBlock.Contains(ip) || private20BitBlock.Contains(ip) || private16BitBlock.Contains(ip)
+	if isPrivate {
+		return DIR_OUTGOING
+	}
+	return DIR_INCOMING
+}
+
+func ip2int(ip net.IP) uint32 {
+	if len(ip) == 16 {
+		return binary.BigEndian.Uint32(ip[12:16])
+	}
+	return binary.BigEndian.Uint32(ip)
+}
+
 func makeMessage(data []byte, ci gopacket.CaptureInfo) (*osc.Message, error) {
+	log.Printf("Make message")
 	var (
 		direction    int32
 		transportStr string
+		appLayerStr  string
 		sport        int32
 		dport        int32
+		srcIP        net.IP
+		dstIP        net.IP
+		srcIPNum     int32
+		dstIPNum     int32
 	)
 	length := ci.Length
 
+	log.Printf("gopacket NewPacket")
 	packet := gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Default)
-	transport := packet.TransportLayer()
-	transportType := transport.LayerType()
-	switch {
-	case transportType == layers.LayerTypeUDP:
-		transportStr = "udp"
-		sport = 12345
-		//dport = int32(layers.UDPPort(transport.TransportFlow().Dst()))
-		dport = 5432
-		log.Printf("dport: %d\n", dport)
-	case transportType == layers.LayerTypeTCP:
-		transportStr = "tcp"
-	default:
-		transportStr = "unknown"
-	}
 
+	// XXX debug
 	for _, layer := range packet.Layers() {
 		fmt.Println("PACKET LAYER:", layer.LayerType())
 	}
 
+	// Network layer features
+	log.Printf("network layer features")
+	network := packet.NetworkLayer()
+	if network == nil {
+		return nil, fmt.Errorf("no network type")
+	}
+	networkType := network.LayerType()
+	if networkType == layers.LayerTypeIPv4 {
+		ipv4 := network.(*layers.IPv4)
+		srcIP = ipv4.SrcIP
+		dstIP = ipv4.DstIP
+	} else if networkType == layers.LayerTypeIPv6 {
+		ipv6 := network.(*layers.IPv6)
+		srcIP = ipv6.SrcIP
+		dstIP = ipv6.DstIP
+	} else {
+		return nil, fmt.Errorf("unsupported network type")
+	}
+
+	log.Printf("transport layer features")
+	// Transport layer features
+	transport := packet.TransportLayer()
+	var transportType gopacket.LayerType
+	if transport != nil {
+		transportType = transport.LayerType()
+	}
+	switch {
+	case transportType == layers.LayerTypeUDP:
+		transportStr = "udp"
+		udp := transport.(*layers.UDP)
+		sport = int32(udp.SrcPort)
+		dport = int32(udp.DstPort)
+		log.Printf("dport: %d\n", dport)
+	case transportType == layers.LayerTypeTCP:
+		transportStr = "tcp"
+		tcp := transport.(*layers.TCP)
+		sport = int32(tcp.SrcPort)
+		dport = int32(tcp.DstPort)
+	default:
+		transportStr = "unknown"
+	}
+	log.Println("computeDirection")
+	direction = computeDirection(srcIP, dstIP)
+	srcIPNum = int32(ip2int(srcIP) << 24)
+	dstIPNum = int32(ip2int(dstIP) << 24)
+
+	// Application layer features
+	application := packet.ApplicationLayer()
+	if application != nil {
+		appLayerStr = fmt.Sprintf("%s", application.LayerType())
+	}
+
 	message := osc.NewMessage("/gotpacket")
-	message.Append(int32(direction)) // Direction
-	message.Append(int32(length))    // packet length
-	message.Append(sport)            // sport
-	message.Append(dport)            // dport
-	message.Append("http")           // highest layer
-	message.Append(transportStr)     // transport layer
-	message.Append(int32(98282))     // ip_dst
-	message.Append(int32(23))        // ip_src
-	message.Append("example.com")    // host
+	message.Append(direction)     // Direction
+	message.Append(int32(length)) // packet length
+	message.Append(sport)         // sport
+	message.Append(dport)         // dport
+	message.Append(appLayerStr)   // highest layer
+	message.Append(transportStr)  // transport layer
+	message.Append(srcIPNum)      // ip_dst
+	message.Append(dstIPNum)      // ip_src
 	return message, nil
 }
 
