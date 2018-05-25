@@ -105,8 +105,10 @@ func makeMessage(data []byte, ci gopacket.CaptureInfo) (*osc.Message, error) {
 		transportStr = "unknown"
 	}
 	direction = computeDirection(srcIP, dstIP)
-	srcIPNum = int32(ip2int(srcIP) << 24)
-	dstIPNum = int32(ip2int(dstIP) << 24)
+	//log.Printf("%s - %s\n", srcIP.String(), dstIP.String())
+	//log.Printf("%d - %d\n", ip2int(srcIP), ip2int(dstIP))
+	srcIPNum = int32(ip2int(srcIP) >> 24)
+	dstIPNum = int32(ip2int(dstIP) >> 24)
 
 	// Application layer features
 	application := packet.ApplicationLayer()
