@@ -16,6 +16,7 @@ import (
 )
 
 var fname = flag.String("r", "", "Filename to read from")
+var timeWarp = flag.Float64("w", 1.0, "Factor to warp time by")
 var oscIP = flag.String("osc-ip", "127.0.0.1", "OSC port")
 var oscPort = flag.Int("osc-port", 3334, "OSC port")
 
@@ -43,7 +44,6 @@ func ip2int(ip net.IP) uint32 {
 }
 
 func makeMessage(data []byte, ci gopacket.CaptureInfo) (*osc.Message, error) {
-	log.Printf("Make message")
 	var (
 		direction    int32
 		transportStr string
@@ -57,16 +57,16 @@ func makeMessage(data []byte, ci gopacket.CaptureInfo) (*osc.Message, error) {
 	)
 	length := ci.Length
 
-	log.Printf("gopacket NewPacket")
 	packet := gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Default)
 
 	// XXX debug
-	for _, layer := range packet.Layers() {
-		fmt.Println("PACKET LAYER:", layer.LayerType())
-	}
+	/*
+		for _, layer := range packet.Layers() {
+			fmt.Println("PACKET LAYER:", layer.LayerType())
+		}
+	*/
 
 	// Network layer features
-	log.Printf("network layer features")
 	network := packet.NetworkLayer()
 	if network == nil {
 		return nil, fmt.Errorf("no network type")
@@ -84,7 +84,6 @@ func makeMessage(data []byte, ci gopacket.CaptureInfo) (*osc.Message, error) {
 		return nil, fmt.Errorf("unsupported network type")
 	}
 
-	log.Printf("transport layer features")
 	// Transport layer features
 	transport := packet.TransportLayer()
 	var transportType gopacket.LayerType
@@ -97,7 +96,6 @@ func makeMessage(data []byte, ci gopacket.CaptureInfo) (*osc.Message, error) {
 		udp := transport.(*layers.UDP)
 		sport = int32(udp.SrcPort)
 		dport = int32(udp.DstPort)
-		log.Printf("dport: %d\n", dport)
 	case transportType == layers.LayerTypeTCP:
 		transportStr = "tcp"
 		tcp := transport.(*layers.TCP)
@@ -106,7 +104,6 @@ func makeMessage(data []byte, ci gopacket.CaptureInfo) (*osc.Message, error) {
 	default:
 		transportStr = "unknown"
 	}
-	log.Println("computeDirection")
 	direction = computeDirection(srcIP, dstIP)
 	srcIPNum = int32(ip2int(srcIP) << 24)
 	dstIPNum = int32(ip2int(dstIP) << 24)
@@ -133,10 +130,10 @@ var lastTS time.Time
 var lastSend time.Time
 
 func sendPacket(client *osc.Client, data []byte, ci gopacket.CaptureInfo) error {
-	intervalInCapture := ci.Timestamp.Sub(lastTS)
+	intervalInCapture := ci.Timestamp.Sub(lastTS) * time.Duration(*timeWarp)
 	elapsedTime := time.Since(lastSend)
 	if (intervalInCapture > elapsedTime) && !lastSend.IsZero() {
-		time.Sleep(intervalInCapture - elapsedTime)
+		time.Sleep((intervalInCapture - elapsedTime))
 	}
 	lastSend = time.Now()
 
@@ -158,6 +155,8 @@ func main() {
 		log.Printf("fname: %s\n", *fname)
 		log.Fatal("Need a input file")
 	}
+
+	log.Printf("Warping time by: %f\n", *timeWarp)
 
 	handleRead, err := pcap.OpenOffline(*fname)
 	if err != nil {
