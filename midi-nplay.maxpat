@@ -9,7 +9,7 @@
 			"modernui" : 1
 		}
 ,
-		"rect" : [ 34.0, 79.0, 1612.0, 932.0 ],
+		"rect" : [ 34.0, 79.0, 1206.0, 932.0 ],
 		"bglocked" : 0,
 		"openinpresentation" : 0,
 		"default_fontsize" : 12.0,
@@ -58,7 +58,6 @@
 					"outlettype" : [ "", "bang" ],
 					"parameter_enable" : 0,
 					"patching_rect" : [ 404.0, 686.0, 50.0, 22.0 ],
-					"presentation_rect" : [ 404.0, 686.0, 0.0, 0.0 ],
 					"style" : ""
 				}
 
@@ -197,7 +196,7 @@
 					"numoutlets" : 2,
 					"outlettype" : [ "", "float" ],
 					"parameter_enable" : 1,
-					"patching_rect" : [ 304.5, 407.0, 44.0, 47.0 ],
+					"patching_rect" : [ 298.5, 373.0, 44.0, 47.0 ],
 					"saved_attribute_attributes" : 					{
 						"valueof" : 						{
 							"parameter_longname" : "live.dial",
@@ -316,30 +315,6 @@
 					"patching_rect" : [ 65.75, 650.0, 110.0, 22.0 ],
 					"style" : "",
 					"text" : "makenote 127 200"
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-158",
-					"maxclass" : "newobj",
-					"numinlets" : 1,
-					"numoutlets" : 0,
-					"patching_rect" : [ 65.75, 856.0, 49.0, 22.0 ],
-					"style" : "",
-					"text" : "midiout"
-				}
-
-			}
-, 			{
-				"box" : 				{
-					"id" : "obj-157",
-					"maxclass" : "newobj",
-					"numinlets" : 1,
-					"numoutlets" : 0,
-					"patching_rect" : [ 394.75, 856.0, 49.0, 22.0 ],
-					"style" : "",
-					"text" : "midiout"
 				}
 
 			}
@@ -576,7 +551,7 @@
 					"outlettype" : [ "" ],
 					"patching_rect" : [ 768.75, 199.0, 102.0, 35.0 ],
 					"style" : "",
-					"text" : "10 54 443 51530  tcp 17 192"
+					"text" : "10 54 443 63660  tcp 17 100"
 				}
 
 			}
@@ -590,7 +565,7 @@
 					"outlettype" : [ "" ],
 					"patching_rect" : [ 649.375, 199.0, 102.0, 35.0 ],
 					"style" : "",
-					"text" : "10 66 993 51466  tcp 91 192"
+					"text" : "10 66 63673 443  tcp 100 54"
 				}
 
 			}
@@ -604,21 +579,21 @@
 					"outlettype" : [ "" ],
 					"patching_rect" : [ 527.0, 199.0, 102.0, 35.0 ],
 					"style" : "",
-					"text" : "11 54 49568 443  tcp 192 172"
+					"text" : "10 66 63546 443  tcp 100 74"
 				}
 
 			}
 , 			{
 				"box" : 				{
 					"id" : "obj-28",
-					"linecount" : 3,
+					"linecount" : 2,
 					"maxclass" : "message",
 					"numinlets" : 2,
 					"numoutlets" : 1,
 					"outlettype" : [ "" ],
-					"patching_rect" : [ 400.0, 199.0, 102.0, 49.0 ],
+					"patching_rect" : [ 400.0, 199.0, 100.0, 35.0 ],
 					"style" : "",
-					"text" : "11 78 51586 7000  tcp 192 192"
+					"text" : "10 74 443 63677  tcp 52 100"
 				}
 
 			}
@@ -632,21 +607,21 @@
 					"outlettype" : [ "" ],
 					"patching_rect" : [ 286.0, 199.0, 98.75, 49.0 ],
 					"style" : "",
-					"text" : "10 110 60011 58522 Payload udp 37 192"
+					"text" : "10 305 54915 54915 Payload udp 100 100"
 				}
 
 			}
 , 			{
 				"box" : 				{
 					"id" : "obj-24",
-					"linecount" : 3,
+					"linecount" : 2,
 					"maxclass" : "message",
 					"numinlets" : 2,
 					"numoutlets" : 1,
 					"outlettype" : [ "" ],
-					"patching_rect" : [ 158.0, 199.0, 102.0, 49.0 ],
+					"patching_rect" : [ 158.0, 199.0, 100.0, 35.0 ],
 					"style" : "",
-					"text" : "11 78 51586 7000  tcp 192 192"
+					"text" : "11 66 56138 443  tcp 172 173"
 				}
 
 			}
@@ -673,7 +648,7 @@
 					"outlettype" : [ "" ],
 					"patching_rect" : [ 30.0, 199.0, 102.0, 35.0 ],
 					"style" : "",
-					"text" : "10 66 443 51497  tcp 149 192"
+					"text" : "10 66 63546 443  tcp 100 74"
 				}
 
 			}
@@ -1353,13 +1328,6 @@
 			}
 , 			{
 				"patchline" : 				{
-					"destination" : [ "obj-22", 0 ],
-					"source" : [ "obj-21", 0 ]
-				}
-
-			}
-, 			{
-				"patchline" : 				{
 					"destination" : [ "obj-59", 0 ],
 					"midpoints" : [ 56.017857, 285.0, 44.25, 285.0 ],
 					"source" : [ "obj-22", 1 ]
@@ -1602,22 +1570,22 @@
 			}
  ],
 		"parameters" : 		{
-			"obj-20" : [ "live.button[8]", "live.button", 0 ],
-			"obj-19" : [ "live.button[7]", "live.button", 0 ],
-			"obj-61" : [ "live.numbox[3]", "live.numbox", 0 ],
 			"obj-11" : [ "live.button[2]", "live.button", 0 ],
-			"obj-10" : [ "live.button[1]", "live.button", 0 ],
-			"obj-62" : [ "live.numbox[4]", "live.numbox", 0 ],
-			"obj-12" : [ "live.button[3]", "live.button", 0 ],
-			"obj-9" : [ "live.button", "live.button", 0 ],
 			"obj-63" : [ "live.numbox[5]", "live.numbox", 0 ],
+			"obj-60" : [ "live.numbox[2]", "live.numbox", 0 ],
+			"obj-12" : [ "live.button[3]", "live.button", 0 ],
+			"obj-62" : [ "live.numbox[4]", "live.numbox", 0 ],
+			"obj-61" : [ "live.numbox[3]", "live.numbox", 0 ],
 			"obj-13" : [ "live.button[4]", "live.button", 0 ],
 			"obj-186" : [ "live.dial[1]", "live.dial[1]", 0 ],
-			"obj-174" : [ "live.dial", "live.dial", 0 ],
-			"obj-14" : [ "live.button[5]", "live.button", 0 ],
-			"obj-59" : [ "live.numbox[1]", "live.numbox", 0 ],
 			"obj-16" : [ "live.button[6]", "live.button", 0 ],
-			"obj-60" : [ "live.numbox[2]", "live.numbox", 0 ]
+			"obj-14" : [ "live.button[5]", "live.button", 0 ],
+			"obj-20" : [ "live.button[8]", "live.button", 0 ],
+			"obj-19" : [ "live.button[7]", "live.button", 0 ],
+			"obj-59" : [ "live.numbox[1]", "live.numbox", 0 ],
+			"obj-174" : [ "live.dial", "live.dial", 0 ],
+			"obj-10" : [ "live.button[1]", "live.button", 0 ],
+			"obj-9" : [ "live.button", "live.button", 0 ]
 		}
 ,
 		"dependency_cache" : [  ],

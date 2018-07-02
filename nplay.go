@@ -228,6 +228,7 @@ func sendPacket(client *osc.Client, data []byte, ci gopacket.CaptureInfo) error 
 		log.Printf("Failed to makeMessage: %s\n", err)
 	} else {
 		for _, msg := range messages {
+			log.Println("Sending packet")
 			client.Send(msg)
 		}
 	}
