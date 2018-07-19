@@ -7,14 +7,41 @@ import (
 	"io"
 	"log"
 	"net"
+	"regexp"
+	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/fatih/color"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
 	"github.com/hypebeast/go-osc/osc"
 )
 
+var ansiEscapes = regexp.MustCompile(`[\x1B\x9B][[\]()#;?]*` +
+	`(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\\d]*)*)?\x07)` +
+	`|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PRZcf-ntqry=><~]))`)
+
+func EscapeAwareRuneCountInString(s string) int {
+	n := utf8.RuneCountInString(s)
+	for _, sm := range ansiEscapes.FindAllString(s, -1) {
+		n -= utf8.RuneCountInString(sm)
+	}
+	return n
+}
+
+func RightPad(str string, length int) string {
+	return str + strings.Repeat(" ", length-EscapeAwareRuneCountInString(str))
+}
+
+var startTime = time.Now()
+
+// Maybe we should rewrite the srcMac in the pcap itself to on in the range
+// 00:53:00 - 00:53:ff (which is reserved for documentation purposes).
+// I would pick: 00:53:5e:af:oo:d0 or 00:53:c0:ff:ee:11
+
+var srcMacAddr = flag.String("m", "", "Mac address to consider the source of packets")
 var fname = flag.String("r", "", "Filename to read from")
 var timeWarp = flag.Float64("w", 1.0, "Factor to warp time by")
 var oscIP = flag.String("osc-ip", "127.0.0.1", "OSC port")
@@ -62,7 +89,72 @@ func getTriggerName(trig TriggerType) string {
 	}
 }
 
-func computeDirection(srcIP net.IP, dstIP net.IP) TriggerType {
+type NetworkPacket struct {
+	TriggerType TriggerType
+	Direction   TriggerType
+	Length      int
+	SrcPort     uint16
+	DstPort     uint16
+	SrcIP       net.IP
+	DstIP       net.IP
+	Transport   string
+	AppLayer    string
+
+	OSCMessage *osc.Message
+}
+
+func (p *NetworkPacket) MakeOSCMessage() {
+	srcIPNum := int32(ip2int(p.SrcIP) >> 24)
+	dstIPNum := int32(ip2int(p.DstIP) >> 24)
+
+	message := osc.NewMessage(getTriggerName(p.TriggerType))
+	message.Append(int32(p.Direction)) // Direction
+	message.Append(int32(p.Length))    // packet length
+	message.Append(int32(p.SrcPort))   // sport
+	message.Append(int32(p.DstPort))   // dport
+	message.Append(p.AppLayer)         // highest layer
+	message.Append(p.Transport)        // transport layer
+	message.Append(srcIPNum)           // ip_dst
+	message.Append(dstIPNum)           // ip_src
+	p.OSCMessage = message
+}
+
+func elapsedTimeStr() string {
+	elapsed := time.Now().Sub(startTime)
+	return RightPad(elapsed.String(), 15)
+}
+
+func (p *NetworkPacket) Log() {
+	dirArrow := "⤫"
+	if p.Direction == TRIG_INCOMING {
+		dirArrow = "⬇️"
+	} else if p.Direction == TRIG_OUTGOING {
+		dirArrow = "🔺"
+	}
+
+	s := elapsedTimeStr()
+	s += fmt.Sprintf(" %s", p.Transport)
+	srcAddr := RightPad(fmt.Sprintf("%s:%s",
+		color.BlueString(p.SrcIP.String()),
+		color.MagentaString(fmt.Sprintf("%d", p.SrcPort)),
+	), 21)
+	dstAddr := RightPad(fmt.Sprintf("%s:%s",
+		color.CyanString(p.DstIP.String()),
+		color.RedString(fmt.Sprintf("%d", p.DstPort)),
+	), 21)
+	s += fmt.Sprintf(" %s %s %s", srcAddr, dirArrow, dstAddr)
+	s += fmt.Sprintf(" %s", p.AppLayer)
+	log.Println(s)
+}
+
+func computeDirection(srcIP net.IP, dstIP net.IP, srcMac string, dstMac string) TriggerType {
+	if *srcMacAddr != "" {
+		if srcMac == *srcMacAddr {
+			return TRIG_OUTGOING
+		}
+		return TRIG_INCOMING
+	}
+
 	ip := srcIP
 	_, private24BitBlock, _ := net.ParseCIDR("10.0.0.0/8")
 	_, private20BitBlock, _ := net.ParseCIDR("172.16.0.0/12")
@@ -81,19 +173,19 @@ func ip2int(ip net.IP) uint32 {
 	return binary.BigEndian.Uint32(ip)
 }
 
-func makeMessage(data []byte, ci gopacket.CaptureInfo) ([]*osc.Message, error) {
+func makeMessage(data []byte, ci gopacket.CaptureInfo) ([]*NetworkPacket, error) {
 	var (
 		direction    TriggerType
 		transportStr string
 		appLayerStr  string
-		sport        int32
-		dport        int32
+		sport        uint16
+		dport        uint16
+		srcMac       string
+		dstMac       string
 		srcIP        net.IP
 		dstIP        net.IP
-		srcIPNum     int32
-		dstIPNum     int32
 		triggers     []TriggerType
-		messages     []*osc.Message
+		messages     []*NetworkPacket
 	)
 	// The trigger signals that we send are the following:
 	// * INCOMING
@@ -112,11 +204,16 @@ func makeMessage(data []byte, ci gopacket.CaptureInfo) ([]*osc.Message, error) {
 	packet := gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Default)
 
 	// XXX debug
-	/*
-		for _, layer := range packet.Layers() {
-			fmt.Println("PACKET LAYER:", layer.LayerType())
+	// Network layer features
+	link := packet.LinkLayer()
+	if link != nil {
+		linkType := link.LayerType()
+		if linkType == layers.LayerTypeEthernet {
+			eth := link.(*layers.Ethernet)
+			srcMac = eth.SrcMAC.String()
+			dstMac = eth.DstMAC.String()
 		}
-	*/
+	}
 
 	// Network layer features
 	network := packet.NetworkLayer()
@@ -152,14 +249,14 @@ func makeMessage(data []byte, ci gopacket.CaptureInfo) ([]*osc.Message, error) {
 	case transportType == layers.LayerTypeUDP:
 		transportStr = "udp"
 		udp := transport.(*layers.UDP)
-		sport = int32(udp.SrcPort)
-		dport = int32(udp.DstPort)
+		sport = uint16(udp.SrcPort)
+		dport = uint16(udp.DstPort)
 		triggers = append(triggers, TRIG_UDP)
 	case transportType == layers.LayerTypeTCP:
 		transportStr = "tcp"
 		tcp := transport.(*layers.TCP)
-		sport = int32(tcp.SrcPort)
-		dport = int32(tcp.DstPort)
+		sport = uint16(tcp.SrcPort)
+		dport = uint16(tcp.DstPort)
 
 		if tcp.FIN == true {
 			triggers = append(triggers, TRIG_TCP_FIN)
@@ -183,13 +280,8 @@ func makeMessage(data []byte, ci gopacket.CaptureInfo) ([]*osc.Message, error) {
 	//if transportStr != "tcp" {
 	//	return nil, fmt.Errorf("no network type")
 	//}
-	direction = computeDirection(srcIP, dstIP)
+	direction = computeDirection(srcIP, dstIP, srcMac, dstMac)
 	triggers = append(triggers, direction)
-
-	//log.Printf("%s - %s\n", srcIP.String(), dstIP.String())
-	//log.Printf("%d - %d\n", ip2int(srcIP), ip2int(dstIP))
-	srcIPNum = int32(ip2int(srcIP) >> 24)
-	dstIPNum = int32(ip2int(dstIP) >> 24)
 
 	// Application layer features
 	application := packet.ApplicationLayer()
@@ -198,16 +290,19 @@ func makeMessage(data []byte, ci gopacket.CaptureInfo) ([]*osc.Message, error) {
 	}
 
 	for _, trig := range triggers {
-		message := osc.NewMessage(getTriggerName(trig))
-		message.Append(int32(direction)) // Direction
-		message.Append(int32(length))    // packet length
-		message.Append(sport)            // sport
-		message.Append(dport)            // dport
-		message.Append(appLayerStr)      // highest layer
-		message.Append(transportStr)     // transport layer
-		message.Append(srcIPNum)         // ip_dst
-		message.Append(dstIPNum)         // ip_src
-		messages = append(messages, message)
+		pkt := NetworkPacket{
+			TriggerType: trig,
+			Direction:   direction,
+			Length:      length,
+			SrcPort:     sport,
+			DstPort:     dport,
+			AppLayer:    appLayerStr,
+			Transport:   transportStr,
+			SrcIP:       srcIP,
+			DstIP:       dstIP,
+		}
+		pkt.MakeOSCMessage()
+		messages = append(messages, &pkt)
 	}
 	return messages, nil
 }
@@ -227,9 +322,11 @@ func sendPacket(client *osc.Client, data []byte, ci gopacket.CaptureInfo) error 
 	if err != nil {
 		log.Printf("Failed to makeMessage: %s\n", err)
 	} else {
-		for _, msg := range messages {
-			log.Println("Sending packet")
-			client.Send(msg)
+		for _, pkt := range messages {
+			pkt.Log()
+			if err := client.Send(pkt.OSCMessage); err != nil {
+				log.Printf("Failed to Send: %s\n", err)
+			}
 		}
 	}
 
